@@ -1,0 +1,1 @@
+#kode RNN taroh di sini
