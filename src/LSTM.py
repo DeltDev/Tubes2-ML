@@ -1,0 +1,1 @@
+#kode LSTM taroh di sini
