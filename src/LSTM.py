@@ -1,10 +1,7 @@
 import numpy as np
-import importlib
 
 class EmbeddingLayer:
-    def __init__(self, vocab_size, embedding_dim):
-        self.vocab_size = vocab_size
-        self.embedding_dim = embedding_dim
+    def __init__(self):
         self.weights = None
 
     def load_weights(self, weights):
@@ -14,10 +11,7 @@ class EmbeddingLayer:
         return self.weights[input_ids]
         
 class LSTMCell:
-    def __init__(self, input_size, hidden_size):
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-
+    def __init__(self):
         self.Wf = None  # Forget gate weights
         self.Wi = None  # Input gate weights
         self.Wc = None  # Cell state weights
@@ -78,13 +72,12 @@ class LSTMCell:
         return h, c
 
 class LSTMLayer:
-    def __init__(self, input_size, hidden_size, return_sequences=False, bidirectional=True):
-        self.input_size = input_size
+    def __init__(self, hidden_size, return_sequences=False, bidirectional=True):
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
         self.return_sequences = return_sequences
-        self.forward_cell = LSTMCell(input_size, hidden_size)
-        self.backward_cell = LSTMCell(input_size, hidden_size) if bidirectional else None
+        self.forward_cell = LSTMCell()
+        self.backward_cell = LSTMCell() if bidirectional else None
     
     def load_weights(self, forward_weights, backward_weights=None):
         self.forward_cell.load_weights(
@@ -144,9 +137,7 @@ class DropoutLayer:
         return x * mask / (1 - self.rate)  # Scale to maintain expected value
 
 class DenseLayer:
-    def __init__(self, input_size, output_size, activation=None):
-        self.input_size = input_size
-        self.output_size = output_size
+    def __init__(self, activation=None):
         self.activation = activation
         self.weights = None
         self.bias = None
@@ -172,20 +163,22 @@ class DenseLayer:
             return output  # No activation function applied
 
 class LSTMModel:
-    def __init__(self, vocab_size, embedding_size, lstm_units=64, num_layers=1, bidirectional=False):
-        self.vocab_size = vocab_size
+    def __init__(self, num_units=64, num_layers=1, bidirectional=False):
+        self.num_units = num_units
+        self.num_layers = num_layers
         self.bidirectional = bidirectional
-        self.embedding_layer = EmbeddingLayer(vocab_size, embedding_size)
+        self.embedding_layer = EmbeddingLayer()
         self.lstm_layers = [
             LSTMLayer(
-                embedding_size if i == 0 else lstm_units * (2 if bidirectional else 1), 
-                lstm_units, 
+                hidden_size=num_units,
                 return_sequences=(i < num_layers - 1), 
                 bidirectional=bidirectional) 
             for i in range(num_layers)
         ]
         self.dropout_layer = DropoutLayer(rate=0.5)
-        self.dense_layer = DenseLayer(lstm_units * (2 if bidirectional else 1), vocab_size, activation='softmax')
+        self.dense_layer = DenseLayer(
+            activation='softmax'
+        )
 
     def load_keras_weights(self, keras_model):
         weights = keras_model.get_weights()
