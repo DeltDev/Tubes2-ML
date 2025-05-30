@@ -1,1 +1,103 @@
-#kode CNN taroh di sini
+import numpy as np
+import h5py
+import tensorflow as tf
+from keras.src.datasets import cifar10
+from scipy.signal import correlate2d
+from sklearn.metrics import f1_score
+
+class Conv2DLayer:
+    def __init__(self, weights, bias, stride=1, padding='same'):
+        self.weights = weights
+        self.bias = bias
+        self.stride = stride
+        self.padding = padding
+
+    def forward(self, x):
+        batch, h, w, c = x.shape
+        kh, kw, in_c, out_c = self.weights.shape
+        pad_h = kh // 2 if self.padding == 'same' else 0
+        pad_w = kw // 2 if self.padding == 'same' else 0
+        x_padded = np.pad(x, ((0,0),(pad_h,pad_h),(pad_w,pad_w),(0,0)), mode='constant')
+        out_h = (h + 2 * pad_h - kh) // self.stride + 1
+        out_w = (w + 2 * pad_w - kw) // self.stride + 1
+        out = np.zeros((batch, out_h, out_w, out_c))
+        for i in range(out_h):
+            for j in range(out_w):
+                region = x_padded[:, i*self.stride:i*self.stride+kh, j*self.stride:j*self.stride+kw, :]
+                for k in range(out_c):
+                    out[:, i, j, k] = np.sum(region * self.weights[..., k], axis=(1,2,3)) + self.bias[k]
+        return np.maximum(out, 0)
+
+class PoolingLayer:
+    def __init__(self, size=2, stride=2, mode='max'):
+        self.size = size
+        self.stride = stride
+        self.mode = mode
+
+    def forward(self, x):
+        batch, h, w, c = x.shape
+        out_h = (h - self.size) // self.stride + 1
+        out_w = (w - self.size) // self.stride + 1
+        out = np.zeros((batch, out_h, out_w, c))
+        for i in range(out_h):
+            for j in range(out_w):
+                region = x[:, i*self.stride:i*self.stride+self.size, j*self.stride:j*self.stride+self.size, :]
+                if self.mode == 'max':
+                    out[:, i, j, :] = np.max(region, axis=(1,2))
+                else:
+                    out[:, i, j, :] = np.mean(region, axis=(1,2))
+        return out
+
+class FlattenLayer:
+    def forward(self, x):
+        return x.reshape((x.shape[0], -1))
+
+class DenseLayer:
+    def __init__(self, weights, bias, activation=None):
+        self.weights = weights
+        self.bias = bias
+        self.activation = activation
+
+    def forward(self, x):
+        out = np.dot(x, self.weights) + self.bias
+        if self.activation == 'relu':
+            return np.maximum(0, out)
+        elif self.activation == 'softmax':
+            exp = np.exp(out - np.max(out, axis=1, keepdims=True))
+            return exp / np.sum(exp, axis=1, keepdims=True)
+        return out
+
+class CNNScratch:
+  def __init__(self, keras_model_path, pooling='max'):
+        self.layers = []
+        self.load_weights_from_keras(keras_model_path, pooling)
+
+  def load_weights_from_keras(self, keras_model_path, pooling):
+      model = tf.keras.models.load_model(keras_model_path)
+      for layer in model.layers:
+          weights = layer.get_weights()
+          if not weights:
+              if isinstance(layer, tf.keras.layers.Flatten):
+                  self.layers.append(FlattenLayer())
+              elif isinstance(layer, (tf.keras.layers.MaxPooling2D, tf.keras.layers.AveragePooling2D)):
+                  self.layers.append(PoolingLayer(mode=pooling))
+              continue
+
+          w, b = weights[0], weights[1]
+          if isinstance(layer, tf.keras.layers.Conv2D):
+              self.layers.append(Conv2DLayer(w, b))
+          elif isinstance(layer, tf.keras.layers.Dense):
+              activation = 'softmax' if w.shape[1] == 10 else 'relu'
+              self.layers.append(DenseLayer(w, b, activation=activation))
+  def predict(self, x):
+      for layer in self.layers:
+          x = layer.forward(x)
+      return np.argmax(x, axis=1)
+
+def evaluate_scratch_model(weight_file, pooling='max'):
+    (_, _), (x_test, y_test) = cifar10.load_data()
+    x_test = x_test.astype('float32') / 255.0
+    y_test = y_test.flatten()
+    model = CNNScratch(weight_file, pooling=pooling)
+    y_pred = model.predict(x_test[:1000])
+    return f1_score(y_test[:1000], y_pred, average='macro')
