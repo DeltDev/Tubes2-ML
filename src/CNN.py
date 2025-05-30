@@ -1,10 +1,9 @@
 import numpy as np
-import h5py
 import tensorflow as tf
-from keras.src.datasets import cifar10
+from tensorflow.keras.datasets import cifar10
 from scipy.signal import correlate2d
 from sklearn.metrics import f1_score
-
+from tensorflow.keras.models import load_model
 class Conv2DLayer:
     def __init__(self, weights, bias, stride=1, padding='same'):
         self.weights = weights
@@ -67,32 +66,36 @@ class DenseLayer:
             return exp / np.sum(exp, axis=1, keepdims=True)
         return out
 
+# === FORWARD PROP CNN CLASS ===
+
 class CNNScratch:
-  def __init__(self, keras_model_path, pooling='max'):
+    def __init__(self, keras_model_path, pooling='max'):
         self.layers = []
-        self.load_weights_from_keras(keras_model_path, pooling)
+        self.load_weights_from_h5(keras_model_path, pooling)
 
-  def load_weights_from_keras(self, keras_model_path, pooling):
-      model = tf.keras.models.load_model(keras_model_path)
-      for layer in model.layers:
-          weights = layer.get_weights()
-          if not weights:
-              if isinstance(layer, tf.keras.layers.Flatten):
-                  self.layers.append(FlattenLayer())
-              elif isinstance(layer, (tf.keras.layers.MaxPooling2D, tf.keras.layers.AveragePooling2D)):
-                  self.layers.append(PoolingLayer(mode=pooling))
-              continue
+    def load_weights_from_h5(self, h5_path, pooling):
+      with h5py.File(h5_path, 'r') as f:
+        weights_group = f['model_weights']
+        for lname in weights_group:
+            g = weights_group[lname]
+            if 'kernel:0' in g and 'bias:0' in g:
+                w = np.array(g['kernel:0'])
+                b = np.array(g['bias:0'])
 
-          w, b = weights[0], weights[1]
-          if isinstance(layer, tf.keras.layers.Conv2D):
-              self.layers.append(Conv2DLayer(w, b))
-          elif isinstance(layer, tf.keras.layers.Dense):
-              activation = 'softmax' if w.shape[1] == 10 else 'relu'
-              self.layers.append(DenseLayer(w, b, activation=activation))
-  def predict(self, x):
-      for layer in self.layers:
-          x = layer.forward(x)
-      return np.argmax(x, axis=1)
+                if len(w.shape) == 4:
+                    self.layers.append(Conv2DLayer(w, b))
+                elif len(w.shape) == 2:
+                    activation = 'softmax' if w.shape[1] == 10 else 'relu'
+                    self.layers.append(DenseLayer(w, b, activation=activation))
+            else:
+                if 'pool' in lname.lower():
+                    self.layers.append(PoolingLayer(mode=pooling))
+                elif 'flatten' in lname.lower():
+                    self.layers.append(FlattenLayer())
+    def predict(self, x):
+        for layer in self.layers:
+            x = layer.forward(x)
+        return np.argmax(x, axis=1)
 
 def evaluate_scratch_model(weight_file, pooling='max'):
     (_, _), (x_test, y_test) = cifar10.load_data()
