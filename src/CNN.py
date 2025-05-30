@@ -66,8 +66,6 @@ class DenseLayer:
             return exp / np.sum(exp, axis=1, keepdims=True)
         return out
 
-# === FORWARD PROP CNN CLASS ===
-
 class CNNScratch:
     def __init__(self, keras_model_path, pooling='max'):
         self.layers = []
